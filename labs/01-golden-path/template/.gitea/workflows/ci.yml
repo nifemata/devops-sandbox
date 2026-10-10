@@ -59,6 +59,7 @@ jobs:
           # The shared laptop namespace keeps its NodePort 30080; every other tenant gets a ClusterIP
           # (an Ingress per learner arrives with the hosted platform in phase 3).
           [ "$NS" = "sandbox" ] || sed -i '/nodePort:/d; s/type: NodePort/type: ClusterIP/' src/k8s/service.yaml
+          sed -i "s|image: .*|image: ${IMAGE}:${TAG}|" src/k8s/deployment.yaml
           kubectl -n "$NS" apply -f src/k8s/
           kubectl -n "$NS" set image deployment/hello hello="${IMAGE}:${TAG}"
           kubectl -n "$NS" rollout status deployment/hello --timeout=180s
