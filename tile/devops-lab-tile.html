@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DevOps Lab — Mubita's Workshop</title>
+<style>
+  :root { --navy:#002460; --blue:#006CB4; --teal:#009CA8; --bg:#f5f7fa; --card:#fff; --text:#1b2430; --muted:#5b6673; --ok:#1e8e3e; --bad:#c5221f; --line:#e1e6ec; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: -apple-system, "Segoe UI", Calibri, sans-serif; background:var(--bg); color:var(--text); }
+  header { background:var(--navy); color:#fff; padding:18px 28px; display:flex; align-items:center; gap:14px; }
+  header .brand { font-size:12px; letter-spacing:.12em; text-transform:uppercase; color:#9fd3d9; }
+  header h1 { margin:0; font-size:20px; font-weight:600; }
+  main { max-width:900px; margin:28px auto; padding:0 20px; display:grid; gap:18px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:20px 22px; }
+  .card h2 { margin:0 0 10px; font-size:15px; color:var(--blue); font-weight:600; }
+  .row { display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+  button { background:var(--blue); color:#fff; border:0; border-radius:6px; padding:9px 16px; font-size:14px; cursor:pointer; }
+  button.secondary { background:#fff; color:var(--blue); border:1px solid var(--blue); }
+  button.danger { background:#fff; color:var(--bad); border:1px solid var(--bad); }
+  button:disabled { opacity:.5; cursor:default; }
+  input, select { padding:8px 10px; border:1px solid var(--line); border-radius:6px; font-size:14px; }
+  .kv { display:grid; grid-template-columns: 140px 1fr; gap:6px 14px; font-size:14px; }
+  .kv dt { color:var(--muted); } .kv dd { margin:0; }
+  .pill { display:inline-block; padding:2px 10px; border-radius:999px; font-size:12px; font-weight:600; }
+  .pill.ok { background:#e6f4ea; color:var(--ok); } .pill.bad { background:#fce8e6; color:var(--bad); } .pill.wait { background:#e8f0fe; color:var(--blue); }
+  .checks { display:grid; gap:8px; margin-top:10px; }
+  .check { display:grid; grid-template-columns: 24px 130px 1fr; gap:10px; align-items:start; font-size:14px; padding:8px 10px; border:1px solid var(--line); border-radius:6px; }
+  .check code { font-size:12px; color:var(--muted); word-break:break-all; }
+  .log { font-family: Consolas, Menlo, monospace; font-size:12px; background:#0f1b2d; color:#cfe3f3; padding:12px; border-radius:6px; max-height:220px; overflow:auto; white-space:pre-wrap; }
+  .muted { color:var(--muted); font-size:13px; }
+  a { color:var(--blue); }
+  footer { text-align:center; color:var(--muted); font-size:12px; padding:20px; }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <div class="brand">Mubita's Workshop</div>
+    <h1>DevOps Lab</h1>
+  </div>
+</header>
+<main>
+  <section class="card">
+    <h2>Connection</h2>
+    <div class="row">
+      <label>Agent <input id="agent" value="http://localhost:8900" size="26"></label>
+      <label>Token <input id="token" value="dev-token" size="14"></label>
+      <label>Learner <input id="learner" value="local" size="10"></label>
+      <label>Lab
+        <select id="lab">
+          <option value="01-golden-path">01 — The Golden Path</option>
+          <option value="01-golden-path-tenant">01 — Golden Path (per-learner tenant)</option>
+        </select>
+      </label>
+      <button class="secondary" id="btnHealth">Check agent</button>
+      <span id="health" class="muted"></span>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Your environment</h2>
+    <div class="row" style="margin-bottom:12px">
+      <button id="btnProvision">Provision</button>
+      <button class="secondary" id="btnStatus">Refresh</button>
+      <button class="secondary" id="btnGrade">Grade</button>
+      <button class="secondary" id="btnResetRepo">Reset repo</button>
+      <button class="secondary" id="btnResetAll">Reset all</button>
+      <button class="secondary" id="btnFixture">Apply fixture: broken-test</button>
+      <button class="danger" id="btnDeprovision">Deprovision</button>
+      <span id="busy" class="pill wait" style="display:none">working…</span>
+    </div>
+    <dl class="kv" id="env"><dt>State</dt><dd class="muted">not provisioned — click Provision</dd></dl>
+  </section>
+
+  <section class="card" id="gradeCard" style="display:none">
+    <h2>Last grade <span id="score" class="pill"></span></h2>
+    <div class="checks" id="checks"></div>
+    <p class="muted" id="gradedAt"></p>
+  </section>
+
+  <section class="card">
+    <h2>Activity</h2>
+    <div class="log" id="log"></div>
+  </section>
+</main>
+<footer>DevOps Lab tile · talks only to the devops-agent · Mubita Digital</footer>
+
+<script>
+const $ = id => document.getElementById(id);
+const log = (m, obj) => { const t = new Date().toLocaleTimeString(); $('log').textContent = `[${t}] ${m}${obj ? '\n' + JSON.stringify(obj, null, 2) : ''}\n` + $('log').textContent; };
+const base = () => $('agent').value.replace(/\/$/, '');
+const hdr = (json) => ({ 'Authorization': 'Bearer ' + $('token').value, ...(json ? { 'Content-Type': 'application/json' } : {}) });
+const envPath = () => `/v1/envs/${encodeURIComponent($('learner').value)}/${encodeURIComponent($('lab').value)}`;
+const busy = on => { $('busy').style.display = on ? '' : 'none'; document.querySelectorAll('button').forEach(b => b.disabled = on); };
+async function call(method, path, body) {
+  const r = await fetch(base() + path, { method, headers: hdr(!!body), body: body ? JSON.stringify(body) : undefined });
+  let data; try { data = await r.json(); } catch { data = { error: 'no-json', status: r.status }; }
+  if (!r.ok) throw Object.assign(new Error(`${method} ${path} → ${r.status}`), { data });
+  return data;
+}
+const pill = (el, text, cls) => { el.textContent = text; el.className = 'pill ' + cls; };
+function renderEnv(e) {
+  const rows = [
+    ['State', `<span class="pill ${e.state === 'ready' ? 'ok' : 'wait'}">${e.state}</span>`],
+    ['Repo', `<a href="${e.urls.gitea}" target="_blank">${e.owner}/${e.repo}</a> · <a href="${e.urls.actions}" target="_blank">pipeline runs</a>`],
+    ['Namespace', e.namespace],
+    ['Head', `<code>${e.head}</code>`],
+    ['App', e.urls.app ? `<a href="${e.urls.app}" target="_blank">${e.urls.app}</a>` : '—'],
+    ['Provisioned', new Date(e.provisioned_at).toLocaleString()],
+    ['Expires', new Date(e.expires_at).toLocaleDateString()],
+  ];
+  if (e.last_grade) rows.push(['Last grade', `<span class="pill ${e.last_grade.score === e.last_grade.of ? 'ok' : 'bad'}">${e.last_grade.score} / ${e.last_grade.of}</span> <span class="muted">${new Date(e.last_grade.at).toLocaleString()}</span>`]);
+  $('env').innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('');
+}
+function renderGrade(g) {
+  $('gradeCard').style.display = '';
+  pill($('score'), `${g.score} / ${g.of}`, g.score === g.of ? 'ok' : 'bad');
+  $('checks').innerHTML = g.checks.map(c => `<div class="check"><span>${c.ok ? '✅' : '❌'}</span><strong>${c.kind}</strong><code>${JSON.stringify(c.evidence)}</code></div>`).join('');
+  $('gradedAt').textContent = 'Graded ' + new Date(g.graded_at).toLocaleString() + ' · head ' + g.head;
+}
+async function refresh(quiet) {
+  try { const e = await call('GET', envPath()); renderEnv(e); if (!quiet) log('status', e); }
+  catch (err) { if (err.data && err.data.detail && err.data.detail.error === 'not_found') { $('env').innerHTML = '<dt>State</dt><dd class="muted">not provisioned — click Provision</dd>'; if (!quiet) log('no environment yet'); } else { log('status failed', err.data || err.message); } }
+}
+async function pollJob(id) {
+  for (let i = 0; i < 120; i++) {
+    const j = await call('GET', `/v1/jobs/${id}`);
+    if (j.state === 'done' || j.state === 'failed') return j;
+    await new Promise(r => setTimeout(r, 1000));
+  }
+  throw new Error('job timed out');
+}
+async function run(label, fn) {
+  busy(true); log(label + '…');
+  try { await fn(); } catch (err) { log(label + ' failed', err.data || err.message); }
+  finally { busy(false); }
+}
+$('btnHealth').onclick = () => run('check agent', async () => { const h = await fetch(base() + '/healthz').then(r => r.json()); $('health').textContent = `gitea: ${h.gitea} · k3s: ${h.k3s}`; log('agent reachable', h); });
+$('btnProvision').onclick = () => run('provision', async () => {
+  const j = await call('POST', '/v1/envs', { learner: $('learner').value, lab: $('lab').value });
+  log('job ' + j.job + ' ' + j.state);
+  const done = await pollJob(j.job);
+  log('job ' + done.state, done.steps.map(s => s.msg));
+  if (done.state === 'failed') throw Object.assign(new Error('provision failed'), { data: done.error });
+  await refresh(true);
+});
+$('btnStatus').onclick = () => run('refresh', () => refresh());
+$('btnGrade').onclick = () => run('grade', async () => { const g = await call('POST', envPath() + '/grade'); renderGrade(g); log(`grade ${g.score}/${g.of}`); await refresh(true); });
+$('btnResetRepo').onclick = () => run('reset repo', async () => { const r = await call('POST', envPath() + '/reset?scope=repo'); log('reset', r.reset); await refresh(true); });
+$('btnResetAll').onclick = () => run('reset all', async () => { const r = await call('POST', envPath() + '/reset?scope=all'); log('reset', r.reset); await refresh(true); });
+$('btnFixture').onclick = () => run('fixture broken-test', async () => { const r = await call('POST', envPath() + '/fixtures/broken-test'); log('fixture applied', r.applied); await refresh(true); });
+$('btnDeprovision').onclick = () => run('deprovision', async () => {
+  if (!confirm(`Deprovision ${$('learner').value} / ${$('lab').value}? This deletes the repo and namespace.`)) return;
+  const j = await call('DELETE', envPath()); const done = await pollJob(j.job); log('deprovision ' + done.state, done.result || done.error); await refresh(true);
+});
+refresh(true);
+</script>
+</body>
+</html>

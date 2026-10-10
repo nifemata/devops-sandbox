@@ -10,7 +10,9 @@ from .provision import provision as do_provision, deprovision as do_deprovision,
 from pydantic import BaseModel
 from .clients import Gitea, Kube, http_get
 
+from fastapi.middleware.cors import CORSMiddleware
 app = FastAPI(title="devops-agent", version="0.3.0")
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 
 def _auth(authorization: str | None):
