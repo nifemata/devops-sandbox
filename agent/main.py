@@ -3,9 +3,11 @@ from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import JSONResponse
 from . import config
 from .grade import grade
+from .reset import reset as do_reset
+from .fixture import fixture as do_fixture
 from .clients import Gitea, Kube, http_get
 
-app = FastAPI(title="devops-agent", version="0.1.0")
+app = FastAPI(title="devops-agent", version="0.2.0")
 
 
 def _auth(authorization: str | None):
@@ -51,10 +53,22 @@ def provision(authorization: str | None = Header(default=None)):
 
 
 @app.post("/v1/envs/{learner}/{lab}/reset")
-def reset(learner: str, lab: str, authorization: str | None = Header(default=None)):
-    _auth(authorization); return _not_yet("reset")
+def reset(learner: str, lab: str, scope: str = "all", authorization: str | None = Header(default=None)):
+    _auth(authorization)
+    try:
+        return do_reset(learner, lab, scope)
+    except ValueError as e:
+        raise HTTPException(400, {"error": "bad_request", "detail": str(e)})
+    except Exception as e:
+        raise HTTPException(502, {"error": "upstream", "detail": str(e)})
 
 
 @app.post("/v1/envs/{learner}/{lab}/fixtures/{name}")
-def fixture(learner: str, lab: str, name: str, authorization: str | None = Header(default=None)):
-    _auth(authorization); return _not_yet("fixture")
+def fixture(learner: str, lab: str, name: str, reset: bool = True, authorization: str | None = Header(default=None)):
+    _auth(authorization)
+    try:
+        return do_fixture(learner, lab, name, do_reset=reset)
+    except FileNotFoundError as e:
+        raise HTTPException(404, {"error": "not_found", "detail": str(e)})
+    except Exception as e:
+        raise HTTPException(502, {"error": "upstream", "detail": str(e)})

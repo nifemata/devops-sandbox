@@ -1,0 +1,8 @@
+lab: 01-golden-path
+owner: sandbox
+repo: hello
+namespace: sandbox
+template: template
+fixtures:
+  clean: the template itself (reset with no overlay)
+  broken-test: the unit test asserts a field the app does not return; the pipeline must go red at step 2

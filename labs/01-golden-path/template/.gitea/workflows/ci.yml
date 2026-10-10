@@ -1,0 +1,53 @@
+# The golden path, as one pipeline: test -> build -> push -> deploy.
+# Every step is a plain shell command on purpose — nothing is hidden in an action.
+name: golden-path
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  build-test-deploy:
+    runs-on: host
+    env:
+      REGISTRY: gitea:3000
+      IMAGE: gitea:3000/${{ github.repository }}      # e.g. gitea:3000/sandbox/hello
+    steps:
+
+      - name: 1. Check out the commit that was pushed
+        run: |
+          rm -rf src
+          git clone --depth 1 --branch "${GITHUB_REF_NAME}" \
+            "http://${{ secrets.REGISTRY_USER }}:${{ secrets.REGISTRY_TOKEN }}@gitea:3000/${GITHUB_REPOSITORY}.git" src
+          cd src && git log --oneline -1
+
+      - name: 2. Run the unit tests
+        run: |
+          cd src
+          tar c . | docker run -i --rm -w /src python:3.12-slim sh -c \
+            "mkdir -p /src && tar x -C /src && pip install -q -r requirements.txt && python -m pytest -q"
+
+      - name: 3. Build the container image
+        run: |
+          TAG="${GITHUB_SHA::7}"
+          docker build --build-arg APP_VERSION="${TAG}" \
+            -t "${IMAGE}:${TAG}" -t "${IMAGE}:latest" src
+          echo "built ${IMAGE}:${TAG}"
+
+      - name: 4. Push it to the sandbox registry
+        run: |
+          echo "${{ secrets.REGISTRY_TOKEN }}" | docker login "${REGISTRY}" -u "${{ secrets.REGISTRY_USER }}" --password-stdin
+          docker push "${IMAGE}:${GITHUB_SHA::7}"
+          docker push "${IMAGE}:latest"
+
+      - name: 5. Deploy to Kubernetes
+        run: |
+          # the cluster writes its kubeconfig for 127.0.0.1; from here it is reachable as "k3s"
+          sed 's/127.0.0.1/k3s/' /kube/kubeconfig.yaml > /tmp/kubeconfig.yaml
+          export KUBECONFIG=/tmp/kubeconfig.yaml
+          kubectl create namespace sandbox --dry-run=client -o yaml | kubectl apply -f -
+          kubectl apply -f src/k8s/
+          kubectl -n sandbox set image deployment/hello hello="${IMAGE}:${GITHUB_SHA::7}"
+          kubectl -n sandbox rollout status deployment/hello --timeout=180s
+          kubectl -n sandbox get pods -o wide
+          echo "Deployed. Open http://localhost:30080 on the laptop running the sandbox."
