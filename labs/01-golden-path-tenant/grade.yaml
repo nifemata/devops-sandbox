@@ -1,0 +1,16 @@
+lab: 01-golden-path-tenant
+checks:
+  - kind: gitea-run
+    repo: hello
+    workflow: ci.yml
+    branch: main
+    expect: success
+  - kind: k8s-deploy
+    namespace: <learner>
+    name: hello
+    expect: {ready: 1}
+  - kind: image-tag
+    namespace: <learner>
+    deployment: hello
+    registry: gitea:3000/<learner>/hello
+    tag: head-sha-7

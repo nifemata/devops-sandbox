@@ -1,5 +1,7 @@
 # The golden path, as one pipeline: test -> build -> push -> deploy.
-# Every step is a plain shell command on purpose — nothing is hidden in an action.
+# Every step is a plain shell command on purpose - nothing is hidden in an action.
+# v2 (phase 2, step 5): no Docker daemon. Tests run in a pod, kaniko builds and pushes
+# from inside the cluster, and everything lands in the namespace named after the repo owner.
 name: golden-path
 
 on:
@@ -12,7 +14,15 @@ jobs:
     env:
       REGISTRY: gitea:3000
       IMAGE: gitea:3000/${{ github.repository }}      # e.g. gitea:3000/sandbox/hello
+      KANIKO: gcr.io/kaniko-project/executor:v1.23.2
     steps:
+
+      - name: 0. Point kubectl at the cluster
+        run: |
+          sed 's/127.0.0.1/k3s/' /kube/kubeconfig.yaml > /tmp/kubeconfig.yaml
+          echo "KUBECONFIG=/tmp/kubeconfig.yaml" >> "$GITHUB_ENV"
+          echo "NS=${GITHUB_REPOSITORY%%/*}" >> "$GITHUB_ENV"
+          echo "TAG=${GITHUB_SHA::7}" >> "$GITHUB_ENV"
 
       - name: 1. Check out the commit that was pushed
         run: |
@@ -20,34 +30,37 @@ jobs:
           git clone --depth 1 --branch "${GITHUB_REF_NAME}" \
             "http://${{ secrets.REGISTRY_USER }}:${{ secrets.REGISTRY_TOKEN }}@gitea:3000/${GITHUB_REPOSITORY}.git" src
           cd src && git log --oneline -1
+          kubectl create namespace "$NS" --dry-run=client -o yaml | kubectl apply -f -
 
-      - name: 2. Run the unit tests
+      - name: 2. Run the unit tests (in a pod)
         run: |
           cd src
-          tar c . | docker run -i --rm -w /src python:3.12-slim sh -c \
-            "mkdir -p /src && tar x -C /src && pip install -q -r requirements.txt && python -m pytest -q"
+          tar c . | kubectl -n "$NS" run "test-${TAG}" -i --rm --restart=Never --image=python:3.12-slim -- \
+            sh -c "mkdir -p /src && tar x -C /src && cd /src && pip install -q -r requirements.txt && python -m pytest -q"
 
-      - name: 3. Build the container image
+      - name: 3. Build and push the image (kaniko, in a pod)
         run: |
-          TAG="${GITHUB_SHA::7}"
-          docker build --build-arg APP_VERSION="${TAG}" \
-            -t "${IMAGE}:${TAG}" -t "${IMAGE}:latest" src
-          echo "built ${IMAGE}:${TAG}"
+          kubectl -n "$NS" create secret docker-registry regcred \
+            --docker-server="$REGISTRY" --docker-username="${{ secrets.REGISTRY_USER }}" \
+            --docker-password="${{ secrets.REGISTRY_TOKEN }}" --dry-run=client -o yaml | kubectl apply -f -
+          OVERRIDES=$(cat <<JSON
+          {"apiVersion":"v1","spec":{"restartPolicy":"Never","containers":[{"name":"kaniko","image":"$KANIKO","stdin":true,"stdinOnce":true,
+            "args":["--context=tar://stdin","--dockerfile=Dockerfile","--destination=$IMAGE:$TAG","--destination=$IMAGE:latest",
+                    "--build-arg","APP_VERSION=$TAG","--insecure","--insecure-pull","--skip-tls-verify","--insecure-registry","$REGISTRY"],
+            "volumeMounts":[{"name":"regcred","mountPath":"/kaniko/.docker"}]}],
+            "volumes":[{"name":"regcred","secret":{"secretName":"regcred","items":[{"key":".dockerconfigjson","path":"config.json"}]}}]}}
+          JSON
+          )
+          cd src && tar c . | gzip | kubectl -n "$NS" run "kaniko-${TAG}" -i --rm --restart=Never --image="$KANIKO" --overrides="$OVERRIDES"
+          echo "pushed ${IMAGE}:${TAG}"
 
-      - name: 4. Push it to the sandbox registry
+      - name: 4. Deploy to Kubernetes
         run: |
-          echo "${{ secrets.REGISTRY_TOKEN }}" | docker login "${REGISTRY}" -u "${{ secrets.REGISTRY_USER }}" --password-stdin
-          docker push "${IMAGE}:${GITHUB_SHA::7}"
-          docker push "${IMAGE}:latest"
-
-      - name: 5. Deploy to Kubernetes
-        run: |
-          # the cluster writes its kubeconfig for 127.0.0.1; from here it is reachable as "k3s"
-          sed 's/127.0.0.1/k3s/' /kube/kubeconfig.yaml > /tmp/kubeconfig.yaml
-          export KUBECONFIG=/tmp/kubeconfig.yaml
-          kubectl create namespace sandbox --dry-run=client -o yaml | kubectl apply -f -
-          kubectl apply -f src/k8s/
-          kubectl -n sandbox set image deployment/hello hello="${IMAGE}:${GITHUB_SHA::7}"
-          kubectl -n sandbox rollout status deployment/hello --timeout=180s
-          kubectl -n sandbox get pods -o wide
-          echo "Deployed. Open http://localhost:30080 on the laptop running the sandbox."
+          # The shared laptop namespace keeps its NodePort 30080; every other tenant gets a ClusterIP
+          # (an Ingress per learner arrives with the hosted platform in phase 3).
+          [ "$NS" = "sandbox" ] || sed -i '/nodePort:/d; s/type: NodePort/type: ClusterIP/' src/k8s/service.yaml
+          kubectl -n "$NS" apply -f src/k8s/
+          kubectl -n "$NS" set image deployment/hello hello="${IMAGE}:${TAG}"
+          kubectl -n "$NS" rollout status deployment/hello --timeout=180s
+          kubectl -n "$NS" get pods -o wide
+          echo "Deployed ${IMAGE}:${TAG} to namespace ${NS}."
