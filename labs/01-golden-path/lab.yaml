@@ -1,8 +1,13 @@
 lab: 01-golden-path
-owner: sandbox
+owner: sandbox          # laptop: the existing sandbox org. Hosted: "<learner>"
 repo: hello
-namespace: sandbox
+namespace: sandbox      # laptop: the existing namespace. Hosted: "<learner>"
 template: template
+app_url: http://localhost:30080
+quota: {cpu: "2", memory: "2Gi", pods: "10"}
+isolate: false          # true on the hosted platform: NetworkPolicy allowing only same-namespace ingress
+ttl_days: 30
+protected: true         # refuse deprovision of the shared laptop sandbox
 fixtures:
   clean: the template itself (reset with no overlay)
   broken-test: the unit test asserts a field the app does not return; the pipeline must go red at step 2

@@ -1,0 +1,11 @@
+# Same lab as 01-golden-path, but with per-learner tenancy (build-plan step 7: a second learner on the laptop).
+lab: 01-golden-path-tenant
+owner: "<learner>"
+repo: hello
+namespace: "<learner>"
+template: ../01-golden-path/template
+app_url: ""
+quota: {cpu: "1", memory: "1Gi", pods: "6"}
+isolate: false
+ttl_days: 30
+protected: false
