@@ -1,0 +1,6 @@
+# Tell k3s's containerd that the registry "gitea:3000" is plain HTTP on the
+# sandbox network. Images are addressed as gitea:3000/<org>/<repo>:<tag>.
+mirrors:
+  "gitea:3000":
+    endpoint:
+      - "http://gitea:3000"

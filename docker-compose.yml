@@ -1,0 +1,127 @@
+# DevOps Sandbox — minimal "golden path" stack
+#
+#   push code  ->  Gitea (git + CI + registry)  ->  runner builds/tests  ->  dind builds image
+#              ->  image pushed to gitea:3000    ->  kubectl deploys to k3s  ->  app on :30080
+#
+# Four containers, one network, nothing on the host except Docker Desktop.
+# Everything talks to Gitea as "gitea:3000" INSIDE the network; you use
+# http://localhost:3000 from your browser and git client.
+
+name: devops-sandbox
+
+services:
+
+  # ---------------------------------------------------------------- Gitea
+  # Git hosting, Gitea Actions (CI) and the container registry, all in one.
+  gitea:
+    image: gitea/gitea:1.24
+    restart: unless-stopped
+    environment:
+      USER_UID: "1000"
+      USER_GID: "1000"
+      GITEA__server__ROOT_URL: "http://gitea:3000/"
+      GITEA__server__HTTP_PORT: "3000"
+      GITEA__server__SSH_DOMAIN: "localhost"
+      GITEA__server__SSH_PORT: "2222"
+      GITEA__security__INSTALL_LOCK: "true"
+      GITEA__service__DISABLE_REGISTRATION: "true"   # instructor creates accounts (roster import later)
+      GITEA__actions__ENABLED: "true"
+      GITEA__actions__DEFAULT_ACTIONS_URL: "github"
+      GITEA__packages__ENABLED: "true"
+      GITEA__repository__DEFAULT_REPO_UNITS: "repo.code,repo.issues,repo.pulls,repo.packages,repo.actions"
+      GITEA__repository__DEFAULT_PUSH_CREATE_PRIVATE: "false"
+      GITEA__webhook__ALLOWED_HOST_LIST: "private,loopback,k3s,gitea"
+    volumes:
+      - gitea-data:/data
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+    ports:
+      - "3000:3000"
+      - "2222:22"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:3000/api/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  # ------------------------------------------------------- Docker-in-Docker
+  # A private Docker daemon used ONLY for building and pushing images from CI.
+  # It sits on the sandbox network, so it can resolve "gitea" and push over
+  # plain HTTP to the registry. Your laptop's own Docker daemon is never touched.
+  dind:
+    image: docker:dind
+    restart: unless-stopped
+    privileged: true
+    command: ["--insecure-registry=gitea:3000"]
+    environment:
+      DOCKER_TLS_CERTDIR: ""        # plain tcp://dind:2375 on the private network
+    volumes:
+      - dind-data:/var/lib/docker
+    healthcheck:
+      test: ["CMD", "docker", "info"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  # ---------------------------------------------------------------- Runner
+  # Gitea Actions runner in "host" mode: job steps run inside this container,
+  # which carries git, python, docker CLI (pointed at dind) and kubectl.
+  # It registers itself with the token bootstrap.sh writes into .env.
+  runner:
+    build: ./runner
+    image: devops-sandbox/runner:local
+    restart: unless-stopped
+    depends_on:
+      gitea:
+        condition: service_healthy
+      dind:
+        condition: service_healthy
+    environment:
+      GITEA_INSTANCE_URL: "http://gitea:3000"
+      GITEA_RUNNER_REGISTRATION_TOKEN: "${RUNNER_TOKEN:-}"
+      GITEA_RUNNER_NAME: "sandbox-runner"
+      GITEA_RUNNER_LABELS: "host:host,ubuntu-latest:host"
+      CONFIG_FILE: "/config.yaml"
+      DOCKER_HOST: "tcp://dind:2375"
+    volumes:
+      - runner-data:/data
+      - runner-work:/work
+      - kube:/kube:ro
+      - ./runner/config.yaml:/config.yaml:ro
+
+  # ------------------------------------------------------------------- k3s
+  # A real single-node Kubernetes. Pulls images straight from gitea:3000
+  # (see k3s/registries.yaml). Traefik is off; the app is a NodePort on 30080.
+  k3s:
+    image: rancher/k3s:v1.31.5-k3s1
+    restart: unless-stopped
+    privileged: true
+    command: server --tls-san k3s --disable traefik
+    tmpfs:
+      - /run
+      - /var/run
+    ulimits:
+      nproc: 65535
+      nofile:
+        soft: 65535
+        hard: 65535
+    environment:
+      K3S_TOKEN: "${K3S_TOKEN:-sandbox-k3s-token}"
+      K3S_KUBECONFIG_OUTPUT: "/output/kubeconfig.yaml"
+      K3S_KUBECONFIG_MODE: "644"
+    volumes:
+      - k3s-server:/var/lib/rancher/k3s
+      - kube:/output
+      - ./k3s/registries.yaml:/etc/rancher/k3s/registries.yaml:ro
+    ports:
+      - "6443:6443"     # kubectl from your laptop (./kubeconfig.yaml)
+      - "30080:30080"   # the sample app
+      - "30081:30081"   # Argo CD UI, once scripts/add-argocd.sh has run
+
+volumes:
+  gitea-data:
+  dind-data:
+  runner-data:
+  runner-work:
+  k3s-server:
+  kube:

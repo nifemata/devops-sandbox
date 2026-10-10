@@ -1,0 +1,8 @@
+.env
+kubeconfig.yaml
+.bootstrap/
+.env
+kubeconfig.yaml
+data/
+*.log
+.DS_Store
