@@ -1,0 +1,23 @@
+# Lab 01 grader manifest, phase-2 (laptop, single tenant) form.
+# owner: the Gitea org/user that holds the repo. On the laptop it is "sandbox";
+# on the hosted platform the agent substitutes <learner>.
+lab: 01-golden-path
+owner: sandbox
+checks:
+  - kind: gitea-run
+    repo: hello
+    workflow: ci.yml
+    branch: main
+    expect: success
+  - kind: k8s-deploy
+    namespace: sandbox
+    name: hello
+    expect: {ready: 1}
+  - kind: image-tag
+    namespace: sandbox
+    deployment: hello
+    registry: gitea:3000/sandbox/hello
+    tag: head-sha-7
+  - kind: http
+    url: http://localhost:30080/
+    expect: {status: 200, json: {version: head-sha-7}}

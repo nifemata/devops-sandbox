@@ -6,3 +6,6 @@ kubeconfig.yaml
 data/
 *.log
 .DS_Store
+.venv-agent/
+agent/state/
+__pycache__/
