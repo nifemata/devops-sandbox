@@ -54,7 +54,7 @@ def _from_keycloak(token: str) -> Principal:
         claims = jwt.decode(
             token, key, algorithms=["RS256"],
             audience=config.KEYCLOAK_AUDIENCE, issuer=config.KEYCLOAK_ISSUER,
-            options={"require": ["exp", "iss", "sub"]}, leeway=30,
+            options={"require": ["exp", "iss"]}, leeway=30,
         )
     except jwt.ExpiredSignatureError:
         _deny("token expired — sign in again")
