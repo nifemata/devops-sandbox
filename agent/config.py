@@ -11,11 +11,14 @@ if _env.exists():
             os.environ.setdefault(k.strip(), v.strip().strip('"'))
 
 GITEA_URL = os.environ.get("GITEA_URL", "http://gitea:3000").rstrip("/")
+# What learners click: the public address when Gitea is published (reuses GITEA_ROOT_URL from .env); else GITEA_URL.
+GITEA_PUBLIC_URL = (os.environ.get("GITEA_PUBLIC_URL") or os.environ.get("GITEA_ROOT_URL") or GITEA_URL).rstrip("/")
 GITEA_USER = os.environ.get("GITEA_USER", "instructor")
 GITEA_PASSWORD = os.environ.get("GITEA_PASSWORD", "")
 GITEA_TOKEN = os.environ.get("GITEA_TOKEN", "")          # preferred over password if set
 KUBECONFIG = os.environ.get("KUBECONFIG", str(ROOT / "kubeconfig.yaml"))
 AGENT_TOKEN = os.environ.get("AGENT_TOKEN", "dev-token")  # bearer the Workshop presents
+APP_BASE_URL = os.environ.get("APP_BASE_URL", "").rstrip("/")   # e.g. https://devops-apps.mubita.digital; empty = no ingress (laptop)
 LABS_DIR = Path(os.environ.get("LABS_DIR", ROOT / "labs"))
 STATE_DIR = Path(os.environ.get("STATE_DIR", ROOT / "agent" / "state"))
 STATE_DIR.mkdir(parents=True, exist_ok=True)

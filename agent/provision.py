@@ -82,6 +82,27 @@ def _ensure_namespace(ns, quota: dict | None, isolate: bool):
     return p.stdout.strip().splitlines()
 
 
+def _ensure_ingress(ns, learner, service="hello", port=80):
+    """Traefik Ingress so the learner's app is reachable at APP_BASE_URL/<learner>/ (prefix stripped)."""
+    env = Kube().env
+    manifests = [
+        {"apiVersion": "traefik.io/v1alpha1", "kind": "Middleware",
+         "metadata": {"name": "strip-prefix", "namespace": ns},
+         "spec": {"stripPrefix": {"prefixes": [f"/{learner}"]}}},
+        {"apiVersion": "networking.k8s.io/v1", "kind": "Ingress",
+         "metadata": {"name": service, "namespace": ns,
+                      "annotations": {"traefik.ingress.kubernetes.io/router.middlewares": f"{ns}-strip-prefix@kubernetescrd"}},
+         "spec": {"rules": [{"http": {"paths": [
+             {"path": f"/{learner}", "pathType": "Prefix",
+              "backend": {"service": {"name": service, "port": {"number": port}}}}]}}]}},
+    ]
+    doc = "\n---\n".join(yaml.safe_dump(m) for m in manifests)
+    p = subprocess.run(["kubectl", "apply", "-f", "-"], input=doc, capture_output=True, text=True, env=env)
+    if p.returncode != 0:
+        raise RuntimeError(p.stderr.strip()[:300])
+    return p.stdout.strip().splitlines()
+
+
 def provision(job, learner: str, lab: str) -> dict:
     meta = _lab(lab)
     owner = meta.get("owner", "<learner>").replace("<learner>", learner)
@@ -109,11 +130,17 @@ def provision(job, learner: str, lab: str) -> dict:
     out = _ensure_namespace(ns, quota, bool(meta.get("isolate", False)))
     step(job, f"k3s: namespace {ns}: " + "; ".join(out))
 
-    base = config.GITEA_URL
+    app_url = meta.get("app_url") or ""
+    if config.APP_BASE_URL and meta.get("app_url", None) == "":
+        out = _ensure_ingress(ns, learner)
+        app_url = f"{config.APP_BASE_URL}/{learner}/"
+        step(job, f"k3s: ingress {app_url}: " + "; ".join(out))
+
+    base = config.GITEA_PUBLIC_URL
     record = {"learner": learner, "lab": lab, "state": "ready",
               "owner": owner, "repo": repo, "namespace": ns, "head": head[:7],
               "urls": {"gitea": f"{base}/{owner}/{repo}", "actions": f"{base}/{owner}/{repo}/actions",
-                       "app": meta.get("app_url", "http://localhost:30080")},
+                       "app": app_url or meta.get("app_url", "http://localhost:30080")},
               "provisioned_at": datetime.now(timezone.utc).isoformat(),
               "expires_at": (datetime.now(timezone.utc) + timedelta(days=int(meta.get("ttl_days", 30)))).isoformat()}
     _record_path(learner, lab).write_text(json.dumps(record, indent=2))

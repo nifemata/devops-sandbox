@@ -91,12 +91,13 @@ services:
 
   # ------------------------------------------------------------------- k3s
   # A real single-node Kubernetes. Pulls images straight from gitea:3000
-  # (see k3s/registries.yaml). Traefik is off; the app is a NodePort on 30080.
+  # (see k3s/registries.yaml). Traefik serves learner apps on :80 (host 127.0.0.1:8081);
+  # the shared sandbox app stays a NodePort on 30080.
   k3s:
     image: rancher/k3s:v1.31.5-k3s1
     restart: unless-stopped
     privileged: true
-    command: server --tls-san k3s --disable traefik
+    command: server --tls-san k3s
     tmpfs:
       - /run
       - /var/run
@@ -116,6 +117,7 @@ services:
     ports:
       - "6443:6443"     # kubectl from your laptop (./kubeconfig.yaml)
       - "30080:30080"   # the sample app
+      - "127.0.0.1:8081:80"   # Traefik ingress: learner apps at /<learner>/ (tunnel route devops-apps)
       - "30081:30081"   # Argo CD UI, once scripts/add-argocd.sh has run
 
 volumes:
