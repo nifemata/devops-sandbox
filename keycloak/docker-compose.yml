@@ -1,0 +1,44 @@
+# Keycloak for the hosted DevOps Lab (phase 3). Separate compose project: the laptop sandbox never runs this.
+#   cd keycloak && cp .env.example .env   # set the admin + db passwords
+#   docker compose up -d                   # realm "workshop" is imported on first start
+# Public via the Cloudflare tunnel: devops-auth.mubita.digital -> http://localhost:8180
+services:
+  kc-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: "${KC_DB_PASSWORD:?set in keycloak/.env}"
+    volumes:
+      - kc-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keycloak"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    restart: unless-stopped
+    command: start --import-realm
+    depends_on:
+      kc-db:
+        condition: service_healthy
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://kc-db:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: "${KC_DB_PASSWORD}"
+      KC_HOSTNAME: "${KC_HOSTNAME:-https://devops-auth.mubita.digital}"
+      KC_HTTP_ENABLED: "true"          # TLS terminates at Cloudflare
+      KC_PROXY_HEADERS: xforwarded
+      KC_BOOTSTRAP_ADMIN_USERNAME: "${KC_ADMIN_USER:-admin}"
+      KC_BOOTSTRAP_ADMIN_PASSWORD: "${KC_ADMIN_PASSWORD:?set in keycloak/.env}"
+    volumes:
+      - ./import:/opt/keycloak/data/import:ro
+    ports:
+      - "127.0.0.1:8180:8080"
+
+volumes:
+  kc-db:

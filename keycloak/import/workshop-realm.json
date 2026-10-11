@@ -1,0 +1,49 @@
+{
+  "realm": "workshop",
+  "displayName": "Mubita's Workshop",
+  "enabled": true,
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "resetPasswordAllowed": true,
+  "sslRequired": "external",
+  "accessTokenLifespan": 900,
+  "roles": {
+    "realm": [
+      { "name": "learner", "description": "May provision/grade/reset their own environment" },
+      { "name": "instructor", "description": "May act on any learner's environment" }
+    ]
+  },
+  "defaultRoles": ["learner"],
+  "clients": [
+    {
+      "clientId": "devops-tile",
+      "name": "DevOps Lab tile",
+      "enabled": true,
+      "publicClient": true,
+      "protocol": "openid-connect",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "rootUrl": "https://devops.mubita.digital",
+      "baseUrl": "/",
+      "redirectUris": ["https://devops.mubita.digital/*", "http://localhost:8800/*"],
+      "webOrigins": ["https://devops.mubita.digital", "http://localhost:8800"],
+      "attributes": { "pkce.code.challenge.method": "S256", "post.logout.redirect.uris": "+" },
+      "defaultClientScopes": ["openid", "profile", "email", "roles"],
+      "protocolMappers": [
+        {
+          "name": "realm roles",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "config": { "claim.name": "roles", "jsonType.label": "String", "multivalued": "true",
+                      "access.token.claim": "true", "id.token.claim": "true" }
+        },
+        {
+          "name": "audience devops-agent",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": { "included.custom.audience": "devops-agent", "access.token.claim": "true" }
+        }
+      ]
+    }
+  ]
+}

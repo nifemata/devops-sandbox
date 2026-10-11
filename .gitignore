@@ -9,3 +9,4 @@ data/
 .venv-agent/
 agent/state/
 __pycache__/
+keycloak/.env
