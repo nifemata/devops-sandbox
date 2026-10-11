@@ -44,9 +44,10 @@
   <section class="card">
     <h2>Connection</h2>
     <div class="row">
-      <label>Agent <input id="agent" value="http://localhost:8900" size="26"></label>
-      <label>Token <input id="token" value="dev-token" size="14"></label>
-      <label>Learner <input id="learner" value="local" size="10"></label>
+      <button id="btnSignIn">Sign in</button>
+      <span id="who" class="muted" style="display:none"><strong id="whoName"></strong> <span id="whoRole" class="pill ok"></span></span>
+      <button class="secondary" id="btnSignOut" style="display:none">Sign out</button>
+      <label id="actAs" style="display:none">Act as learner <input id="learner" value="" size="10"></label>
       <label>Lab
         <select id="lab">
           <option value="01-golden-path">01 — The Golden Path</option>
@@ -56,6 +57,14 @@
       <button class="secondary" id="btnHealth">Check agent</button>
       <span id="health" class="muted"></span>
     </div>
+    <details id="cli" style="margin-top:10px">
+      <summary class="muted">Advanced: agent address / CLI token (break-glass, no sign-in)</summary>
+      <div class="row" style="margin-top:8px">
+        <label>Agent <input id="agent" value="http://localhost:8900" size="30"></label>
+        <label>Token <input id="token" type="password" value="" size="14" autocomplete="off"></label>
+        <label>Learner <input id="cliLearner" value="local" size="10"></label>
+      </div>
+    </details>
   </section>
 
   <section class="card">
@@ -84,17 +93,71 @@
     <div class="log" id="log"></div>
   </section>
 </main>
-<footer>DevOps Lab tile · talks only to the devops-agent · Mubita Digital</footer>
+<footer>DevOps Lab tile · sign-in by Keycloak · talks only to the devops-agent · Mubita Digital</footer>
 
 <script>
 const $ = id => document.getElementById(id);
 const log = (m, obj) => { const t = new Date().toLocaleTimeString(); $('log').textContent = `[${t}] ${m}${obj ? '\n' + JSON.stringify(obj, null, 2) : ''}\n` + $('log').textContent; };
 const base = () => $('agent').value.replace(/\/$/, '');
-const hdr = (json) => ({ 'Authorization': 'Bearer ' + $('token').value, ...(json ? { 'Content-Type': 'application/json' } : {}) });
-const envPath = () => `/v1/envs/${encodeURIComponent($('learner').value)}/${encodeURIComponent($('lab').value)}`;
+
+// ---- Sign-in (Keycloak, authorization code + PKCE, no library) ----------------------------
+const KC = { url: 'https://devops-auth.mubita.digital', realm: 'workshop', client: 'devops-tile' };
+const PUBLIC_AGENT = 'https://devops-agent.mubita.digital';
+const kcBase = () => `${KC.url}/realms/${KC.realm}/protocol/openid-connect`;
+const redirectUri = () => location.origin + location.pathname;
+const session = { get: () => JSON.parse(sessionStorage.getItem('kc') || 'null'), set: v => sessionStorage.setItem('kc', JSON.stringify(v)), clear: () => sessionStorage.removeItem('kc') };
+const b64url = buf => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const rand = () => b64url(crypto.getRandomValues(new Uint8Array(32)));
+const claims = t => JSON.parse(atob(t.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+async function signIn() {
+  const verifier = rand(), state = rand();
+  const challenge = b64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)));
+  sessionStorage.setItem('pkce', JSON.stringify({ verifier, state }));
+  const q = new URLSearchParams({ client_id: KC.client, response_type: 'code', scope: 'openid', redirect_uri: redirectUri(), state, code_challenge: challenge, code_challenge_method: 'S256' });
+  location.assign(`${kcBase()}/auth?${q}`);
+}
+async function tokenRequest(params) {
+  const r = await fetch(`${kcBase()}/token`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ client_id: KC.client, ...params }) });
+  const d = await r.json(); if (!r.ok) throw new Error(d.error_description || d.error || `token ${r.status}`);
+  session.set({ access: d.access_token, refresh: d.refresh_token, id: d.id_token, exp: Date.now() + d.expires_in * 1000 });
+  return session.get();
+}
+async function finishSignIn() {              // back from Keycloak with ?code=…&state=…
+  const u = new URL(location.href), code = u.searchParams.get('code'), state = u.searchParams.get('state');
+  if (!code) return;
+  const pk = JSON.parse(sessionStorage.getItem('pkce') || '{}'); sessionStorage.removeItem('pkce');
+  history.replaceState({}, '', redirectUri());
+  if (state !== pk.state) { log('sign-in failed: state mismatch'); return; }
+  try { await tokenRequest({ grant_type: 'authorization_code', code, redirect_uri: redirectUri(), code_verifier: pk.verifier }); log('signed in'); }
+  catch (e) { log('sign-in failed', e.message); }
+}
+async function accessToken() {               // refresh when < 30 s left
+  const s = session.get(); if (!s) return null;
+  if (Date.now() < s.exp - 30000) return s.access;
+  try { return (await tokenRequest({ grant_type: 'refresh_token', refresh_token: s.refresh })).access; }
+  catch (e) { log('session expired — sign in again'); session.clear(); renderWho(); return null; }
+}
+function signOut() {
+  const s = session.get(); session.clear(); renderWho();
+  if (s && s.id) location.assign(`${kcBase()}/logout?${new URLSearchParams({ id_token_hint: s.id, post_logout_redirect_uri: redirectUri() })}`);
+}
+let me = null;                               // {learner, roles, instructor} from the agent, when signed in
+function renderWho() {
+  const s = session.get(); const on = !!s;
+  $('btnSignIn').style.display = on ? 'none' : ''; $('btnSignOut').style.display = on ? '' : 'none'; $('who').style.display = on ? '' : 'none';
+  $('cli').style.display = on ? 'none' : '';
+  if (on) { const c = claims(s.access); $('whoName').textContent = c.preferred_username; const roles = (c.roles || (c.realm_access || {}).roles || []); const inst = roles.includes('instructor'); $('whoRole').textContent = inst ? 'instructor' : 'learner'; $('actAs').style.display = inst ? '' : 'none'; if (!$('learner').value) $('learner').value = c.preferred_username; }
+  else { $('actAs').style.display = 'none'; me = null; }
+}
+const currentLearner = () => session.get() ? ($('actAs').style.display === 'none' ? claims(session.get().access).preferred_username : ($('learner').value || claims(session.get().access).preferred_username)) : $('cliLearner').value;
+async function bearer() { return session.get() ? await accessToken() : $('token').value; }
+// --------------------------------------------------------------------------------------------
+
+const hdr = async (json) => ({ 'Authorization': 'Bearer ' + (await bearer()), ...(json ? { 'Content-Type': 'application/json' } : {}) });
+const envPath = () => `/v1/envs/${encodeURIComponent(currentLearner())}/${encodeURIComponent($('lab').value)}`;
 const busy = on => { $('busy').style.display = on ? '' : 'none'; document.querySelectorAll('button').forEach(b => b.disabled = on); };
 async function call(method, path, body) {
-  const r = await fetch(base() + path, { method, headers: hdr(!!body), body: body ? JSON.stringify(body) : undefined });
+  const r = await fetch(base() + path, { method, headers: await hdr(!!body), body: body ? JSON.stringify(body) : undefined });
   let data; try { data = await r.json(); } catch { data = { error: 'no-json', status: r.status }; }
   if (!r.ok) throw Object.assign(new Error(`${method} ${path} → ${r.status}`), { data });
   return data;
@@ -138,7 +201,7 @@ async function run(label, fn) {
 }
 $('btnHealth').onclick = () => run('check agent', async () => { const h = await fetch(base() + '/healthz').then(r => r.json()); $('health').textContent = `gitea: ${h.gitea} · k3s: ${h.k3s}`; log('agent reachable', h); });
 $('btnProvision').onclick = () => run('provision', async () => {
-  const j = await call('POST', '/v1/envs', { learner: $('learner').value, lab: $('lab').value });
+  const j = await call('POST', '/v1/envs', { learner: currentLearner(), lab: $('lab').value });
   log('job ' + j.job + ' ' + j.state);
   const done = await pollJob(j.job);
   log('job ' + done.state, done.steps.map(s => s.msg));
@@ -151,10 +214,17 @@ $('btnResetRepo').onclick = () => run('reset repo', async () => { const r = awai
 $('btnResetAll').onclick = () => run('reset all', async () => { const r = await call('POST', envPath() + '/reset?scope=all'); log('reset', r.reset); await refresh(true); });
 $('btnFixture').onclick = () => run('fixture broken-test', async () => { const r = await call('POST', envPath() + '/fixtures/broken-test'); log('fixture applied', r.applied); await refresh(true); });
 $('btnDeprovision').onclick = () => run('deprovision', async () => {
-  if (!confirm(`Deprovision ${$('learner').value} / ${$('lab').value}? This deletes the repo and namespace.`)) return;
+  if (!confirm(`Deprovision ${currentLearner()} / ${$('lab').value}? This deletes the repo and namespace.`)) return;
   const j = await call('DELETE', envPath()); const done = await pollJob(j.job); log('deprovision ' + done.state, done.result || done.error); await refresh(true);
 });
-refresh(true);
+$('btnSignIn').onclick = signIn;
+$('btnSignOut').onclick = signOut;
+if (location.hostname === 'devops.mubita.digital') $('agent').value = PUBLIC_AGENT;   // public build: same file, hosted
+(async () => {
+  await finishSignIn(); renderWho();
+  if (session.get()) { try { me = await call('GET', '/v1/me'); log('agent recognises ' + me.learner + (me.instructor ? ' (instructor)' : '')); } catch (e) { log('agent rejected the sign-in', e.data || e.message); } }
+  refresh(true);
+})();
 </script>
 </body>
 </html>

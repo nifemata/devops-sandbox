@@ -13,6 +13,7 @@ def _save(job):
 
 def start(kind: str, fn, *args) -> dict:
     job = {"id": uuid.uuid4().hex[:12], "kind": kind, "state": "queued", "steps": [],
+           "learner": args[0] if args else None,
            "created_at": datetime.now(timezone.utc).isoformat(), "result": None, "error": None}
     with _lock:
         _jobs[job["id"]] = job
