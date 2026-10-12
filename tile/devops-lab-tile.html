@@ -50,8 +50,8 @@
       <label id="actAs" style="display:none">Act as learner <input id="learner" value="" size="10"></label>
       <label>Lab
         <select id="lab">
-          <option value="01-golden-path">01 — The Golden Path</option>
-          <option value="01-golden-path-tenant">01 — Golden Path (per-learner tenant)</option>
+          <option value="01-golden-path-tenant" selected>01 — The Golden Path (your own environment)</option>
+          <option value="01-golden-path">01 — The Golden Path (shared sandbox, instructor demo)</option>
         </select>
       </label>
       <button class="secondary" id="btnHealth">Check agent</button>
@@ -223,7 +223,7 @@ if (location.hostname === 'devops.mubita.digital') $('agent').value = PUBLIC_AGE
 (async () => {
   await finishSignIn(); renderWho();
   if (session.get()) { try { me = await call('GET', '/v1/me'); log('agent recognises ' + me.learner + (me.instructor ? ' (instructor)' : '')); } catch (e) { log('agent rejected the sign-in', e.data || e.message); } }
-  refresh(true);
+  if (session.get() || $('token').value) refresh(true); else log('sign in to see your environment');
 })();
 </script>
 </body>
