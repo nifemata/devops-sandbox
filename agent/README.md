@@ -18,3 +18,17 @@ Settings (env or .env in the sandbox root): GITEA_URL (default http://gitea:3000
 GITEA_PASSWORD or GITEA_TOKEN, KUBECONFIG (default ./kubeconfig.yaml), AGENT_TOKEN (default dev-token).
 
 provision / reset / fixture return 501 until build-plan steps 3–4.
+
+## Gitea sign-in with Keycloak (patch 0005)
+
+Learners open their repo and Actions logs with the same Keycloak account they use on the tile.
+
+1. Keycloak admin console → realm `workshop` → Clients → `gitea` (confidential; created by the realm
+   import on fresh installs, or by hand): Credentials tab → copy the client secret.
+2. Sandbox `.env`: `GITEA_OIDC_SECRET=<that secret>` (KEYCLOAK_ISSUER is already there).
+3. `docker compose up -d gitea` (picks up the `[service]`/`[oauth2_client]` settings), then `scripts/gitea-oidc.sh`.
+4. Restart the agent. `GET /healthz` shows `gitea_oidc: keycloak`.
+
+Provision then adds the learner to the **Owners** team of their own org (tenant labs only). If the learner
+has not yet signed in to Gitea, the env record says `gitea_access: pending`; the next status call (tile
+**Refresh**) retries. Every Keycloak user needs an email address — Gitea requires one to create the account.

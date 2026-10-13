@@ -1,4 +1,4 @@
-"""devops-agent v0.4 — phase 3: Keycloak sign-in (learners act on themselves, instructors on anyone; static token = CLI)."""
+"""devops-agent v0.5 — phase 3: Keycloak sign-in for the tile AND Gitea; provision makes the learner owner of their org."""
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from . import config
@@ -6,13 +6,13 @@ from .grade import grade
 from .reset import reset as do_reset
 from .fixture import fixture as do_fixture
 from . import jobs
-from .provision import provision as do_provision, deprovision as do_deprovision, read_record
+from .provision import provision as do_provision, deprovision as do_deprovision, read_record, refresh_access
 from pydantic import BaseModel
 from .clients import Gitea, Kube, http_get
 from .auth import Principal, current_user, require
 
 from fastapi.middleware.cors import CORSMiddleware
-app = FastAPI(title="devops-agent", version="0.4.0")
+app = FastAPI(title="devops-agent", version="0.5.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 
@@ -29,6 +29,7 @@ def healthz():
         out["gitea"] = str(e)
     out["k3s"] = "ok" if Kube().get("node", "", None) is not None or Kube().get("namespace", "kube-system") else "unreachable"
     out["auth"] = "keycloak+static" if config.KEYCLOAK_ISSUER else "static"
+    out["gitea_oidc"] = config.GITEA_OIDC_NAME or "off"
     return out
 
 
@@ -52,6 +53,7 @@ def status(learner: str, lab: str, who: Principal = Depends(current_user)):
     rec = read_record(learner, lab)
     if rec is None:
         raise HTTPException(404, {"error": "not_found", "detail": "no environment; POST /v1/envs to provision"})
+    rec = refresh_access(rec)
     f = config.STATE_DIR / f"{learner}.{lab}.grade.json"
     if f.exists():
         import json

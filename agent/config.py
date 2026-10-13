@@ -22,6 +22,9 @@ AGENT_TOKEN = os.environ.get("AGENT_TOKEN", "dev-token")  # static bearer: CLI /
 KEYCLOAK_ISSUER = os.environ.get("KEYCLOAK_ISSUER", "").rstrip("/")          # e.g. https://devops-auth.mubita.digital/realms/workshop
 KEYCLOAK_JWKS_URL = os.environ.get("KEYCLOAK_JWKS_URL") or (KEYCLOAK_ISSUER + "/protocol/openid-connect/certs" if KEYCLOAK_ISSUER else "")
 KEYCLOAK_AUDIENCE = os.environ.get("KEYCLOAK_AUDIENCE", "devops-agent")
+# Gitea OIDC auth source name (scripts/gitea-oidc.sh). Set = learners can sign in to Gitea with their Keycloak
+# account and provision makes them owner of their org. Empty = off (laptop sandbox). Defaults on when Keycloak is on.
+GITEA_OIDC_NAME = os.environ.get("GITEA_OIDC_NAME", "keycloak" if KEYCLOAK_ISSUER else "")
 APP_BASE_URL = os.environ.get("APP_BASE_URL", "").rstrip("/")   # e.g. https://devops-apps.mubita.digital; empty = no ingress (laptop)
 LABS_DIR = Path(os.environ.get("LABS_DIR", ROOT / "labs"))
 STATE_DIR = Path(os.environ.get("STATE_DIR", ROOT / "agent" / "state"))

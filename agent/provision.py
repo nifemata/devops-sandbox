@@ -37,6 +37,36 @@ def _ensure_repo(g: Gitea, owner, repo):
     r.raise_for_status(); return "created"
 
 
+def _ensure_owner(g: Gitea, org, user):
+    """Make Gitea user `user` an owner of org `org` (idempotent).
+    Returns 'owner' (already / now a member of the Owners team) or 'pending' (no Gitea user yet —
+    the learner has not signed in to Gitea with Keycloak; retried on every status/refresh)."""
+    if g.c.get(f"/users/{user}").status_code != 200:
+        return "pending"
+    r = g.c.get(f"/orgs/{org}/teams"); r.raise_for_status()
+    team = next((t for t in r.json() if t.get("name") == "Owners"), None)
+    if team is None:
+        raise RuntimeError(f"org {org} has no Owners team")
+    if g.c.get(f"/teams/{team['id']}/members/{user}").status_code == 200:
+        return "owner"
+    g.c.put(f"/teams/{team['id']}/members/{user}").raise_for_status()
+    return "owner"
+
+
+def refresh_access(record: dict) -> dict:
+    """Called by GET status: if the learner's org ownership was pending, try again now."""
+    if record.get("gitea_access") != "pending":
+        return record
+    try:
+        state = _ensure_owner(Gitea(), record["owner"], record["learner"])
+    except Exception:  # noqa: BLE001 — Gitea hiccup; stay pending
+        return record
+    if state != record["gitea_access"]:
+        record["gitea_access"] = state
+        _record_path(record["learner"], record["lab"]).write_text(json.dumps(record, indent=2))
+    return record
+
+
 def _enable_actions(g: Gitea, owner, repo):
     g.c.patch(f"/repos/{owner}/{repo}", json={"has_actions": True}).raise_for_status()
 
@@ -114,6 +144,12 @@ def provision(job, learner: str, lab: str) -> dict:
     step(job, f"gitea: repo {owner}/{repo} {_ensure_repo(g, owner, repo)}")
     _enable_actions(g, owner, repo); step(job, "gitea: actions enabled")
 
+    gitea_access = "n/a"   # shared labs (owner != learner): learner never gets rights on the demo org
+    if config.GITEA_OIDC_NAME and owner == learner:
+        gitea_access = _ensure_owner(g, owner, learner)
+        step(job, f"gitea: learner {learner} org access {gitea_access}"
+                  + (" (no Gitea user yet — sign in to Gitea with Keycloak, then Refresh)" if gitea_access == "pending" else ""))
+
     template = config.LABS_DIR / lab / meta.get("template", "template")
     if _repo_is_empty(g, owner, repo):
         head = _seed_empty_repo(owner, repo, template); step(job, f"gitea: seeded template, head {head[:7]}")
@@ -139,8 +175,10 @@ def provision(job, learner: str, lab: str) -> dict:
     base = config.GITEA_PUBLIC_URL
     record = {"learner": learner, "lab": lab, "state": "ready",
               "owner": owner, "repo": repo, "namespace": ns, "head": head[:7],
+              "gitea_access": gitea_access,
               "urls": {"gitea": f"{base}/{owner}/{repo}", "actions": f"{base}/{owner}/{repo}/actions",
-                       "app": app_url or meta.get("app_url", "http://localhost:30080")},
+                       "app": app_url or meta.get("app_url", "http://localhost:30080"),
+                       **({"gitea_signin": f"{base}/user/oauth2/{config.GITEA_OIDC_NAME}"} if config.GITEA_OIDC_NAME else {})},
               "provisioned_at": datetime.now(timezone.utc).isoformat(),
               "expires_at": (datetime.now(timezone.utc) + timedelta(days=int(meta.get("ttl_days", 30)))).isoformat()}
     _record_path(learner, lab).write_text(json.dumps(record, indent=2))

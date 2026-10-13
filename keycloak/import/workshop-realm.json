@@ -9,11 +9,19 @@
   "accessTokenLifespan": 900,
   "roles": {
     "realm": [
-      { "name": "learner", "description": "May provision/grade/reset their own environment" },
-      { "name": "instructor", "description": "May act on any learner's environment" }
+      {
+        "name": "learner",
+        "description": "May provision/grade/reset their own environment"
+      },
+      {
+        "name": "instructor",
+        "description": "May act on any learner's environment"
+      }
     ]
   },
-  "defaultRoles": ["learner"],
+  "defaultRoles": [
+    "learner"
+  ],
   "clients": [
     {
       "clientId": "devops-tile",
@@ -25,24 +33,75 @@
       "directAccessGrantsEnabled": false,
       "rootUrl": "https://devops.mubita.digital",
       "baseUrl": "/",
-      "redirectUris": ["https://devops.mubita.digital/*", "http://localhost:8800/*"],
-      "webOrigins": ["https://devops.mubita.digital", "http://localhost:8800"],
-      "attributes": { "pkce.code.challenge.method": "S256", "post.logout.redirect.uris": "+" },
-      "defaultClientScopes": ["openid", "profile", "email", "roles"],
+      "redirectUris": [
+        "https://devops.mubita.digital/*",
+        "http://localhost:8800/*"
+      ],
+      "webOrigins": [
+        "https://devops.mubita.digital",
+        "http://localhost:8800"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "+"
+      },
+      "defaultClientScopes": [
+        "openid",
+        "profile",
+        "email",
+        "roles"
+      ],
       "protocolMappers": [
         {
           "name": "realm roles",
           "protocol": "openid-connect",
           "protocolMapper": "oidc-usermodel-realm-role-mapper",
-          "config": { "claim.name": "roles", "jsonType.label": "String", "multivalued": "true",
-                      "access.token.claim": "true", "id.token.claim": "true" }
+          "config": {
+            "claim.name": "roles",
+            "jsonType.label": "String",
+            "multivalued": "true",
+            "access.token.claim": "true",
+            "id.token.claim": "true"
+          }
         },
         {
           "name": "audience devops-agent",
           "protocol": "openid-connect",
           "protocolMapper": "oidc-audience-mapper",
-          "config": { "included.custom.audience": "devops-agent", "access.token.claim": "true" }
+          "config": {
+            "included.custom.audience": "devops-agent",
+            "access.token.claim": "true"
+          }
         }
+      ]
+    },
+    {
+      "clientId": "gitea",
+      "name": "Gitea (git hosting)",
+      "enabled": true,
+      "publicClient": false,
+      "protocol": "openid-connect",
+      "clientAuthenticatorType": "client-secret",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "implicitFlowEnabled": false,
+      "rootUrl": "https://devops-git.mubita.digital",
+      "baseUrl": "/",
+      "redirectUris": [
+        "https://devops-git.mubita.digital/user/oauth2/keycloak/callback",
+        "http://localhost:3000/user/oauth2/keycloak/callback"
+      ],
+      "webOrigins": [
+        "https://devops-git.mubita.digital"
+      ],
+      "attributes": {
+        "post.logout.redirect.uris": "+"
+      },
+      "defaultClientScopes": [
+        "openid",
+        "profile",
+        "email",
+        "roles"
       ]
     }
   ]

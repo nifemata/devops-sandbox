@@ -24,7 +24,17 @@ services:
       GITEA__server__SSH_DOMAIN: "localhost"
       GITEA__server__SSH_PORT: "2222"
       GITEA__security__INSTALL_LOCK: "true"
-      GITEA__service__DISABLE_REGISTRATION: "true"   # instructor creates accounts (roster import later)
+      # Accounts: no self-registration form, but a Keycloak sign-in (scripts/gitea-oidc.sh) may
+      # auto-create a user on first login. The instructor account is local (bootstrap.sh).
+      GITEA__service__DISABLE_REGISTRATION: "false"
+      GITEA__service__ALLOW_ONLY_EXTERNAL_REGISTRATION: "true"
+      GITEA__service__SHOW_REGISTRATION_BUTTON: "false"
+      GITEA__service__REQUIRE_SIGNIN_VIEW: "false"
+      GITEA__oauth2_client__ENABLE_AUTO_REGISTRATION: "true"
+      GITEA__oauth2_client__USERNAME: "nickname"          # Gitea username = Keycloak preferred_username
+      GITEA__oauth2_client__ACCOUNT_LINKING: "auto"
+      GITEA__oauth2_client__UPDATE_AVATAR: "false"
+      GITEA__oauth2_client__REGISTER_EMAIL_CONFIRM: "false"
       GITEA__actions__ENABLED: "true"
       GITEA__actions__DEFAULT_ACTIONS_URL: "github"
       GITEA__packages__ENABLED: "true"

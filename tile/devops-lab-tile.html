@@ -167,6 +167,9 @@ function renderEnv(e) {
   const rows = [
     ['State', `<span class="pill ${e.state === 'ready' ? 'ok' : 'wait'}">${e.state}</span>`],
     ['Repo', `<a href="${e.urls.gitea}" target="_blank">${e.owner}/${e.repo}</a> · <a href="${e.urls.actions}" target="_blank">pipeline runs</a>`],
+    ...(e.gitea_access && e.gitea_access !== 'n/a' ? [['Gitea access', e.gitea_access === 'owner'
+        ? `<span class="pill ok">owner</span> <span class="muted">you can open the repo and pipeline logs — sign in to Gitea with the same account</span>`
+        : `<span class="pill wait">pending</span> <span class="muted">first <a href="${e.urls.gitea_signin}" target="_blank">sign in to Gitea</a> with your Keycloak account, then click Refresh</span>`]] : []),
     ['Namespace', e.namespace],
     ['Head', `<code>${e.head}</code>`],
     ['App', e.urls.app ? `<a href="${e.urls.app}" target="_blank">${e.urls.app}</a>` : '—'],
@@ -199,7 +202,7 @@ async function run(label, fn) {
   try { await fn(); } catch (err) { log(label + ' failed', err.data || err.message); }
   finally { busy(false); }
 }
-$('btnHealth').onclick = () => run('check agent', async () => { const h = await fetch(base() + '/healthz').then(r => r.json()); $('health').textContent = `gitea: ${h.gitea} · k3s: ${h.k3s}`; log('agent reachable', h); });
+$('btnHealth').onclick = () => run('check agent', async () => { const h = await fetch(base() + '/healthz').then(r => r.json()); $('health').textContent = `gitea: ${h.gitea} · k3s: ${h.k3s}` + (h.gitea_oidc && h.gitea_oidc !== 'off' ? ' · gitea sign-in: keycloak' : ''); log('agent reachable', h); });
 $('btnProvision').onclick = () => run('provision', async () => {
   const j = await call('POST', '/v1/envs', { learner: currentLearner(), lab: $('lab').value });
   log('job ' + j.job + ' ' + j.state);
