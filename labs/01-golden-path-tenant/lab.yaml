@@ -1,6 +1,6 @@
 # Same lab as 01-golden-path, but with per-learner tenancy (build-plan step 7: a second learner on the laptop).
 lab: 01-golden-path-tenant
-owner: "<learner>"
+owner: "<learner>-lab"     # NOT "<learner>": Gitea users and orgs share a namespace, and the learner signs in as <learner>
 repo: hello
 namespace: "<learner>"
 template: ../01-golden-path/template

@@ -29,6 +29,8 @@ Learners open their repo and Actions logs with the same Keycloak account they us
 3. `docker compose up -d gitea` (picks up the `[service]`/`[oauth2_client]` settings), then `scripts/gitea-oidc.sh`.
 4. Restart the agent. `GET /healthz` shows `gitea_oidc: keycloak`.
 
-Provision then adds the learner to the **Owners** team of their own org (tenant labs only). If the learner
+Provision then adds the learner to the **Owners** team of their own org (tenant labs only). The org is named
+`<learner>-lab`, never `<learner>`: Gitea users and orgs share one namespace, and the learner's Gitea user must
+be free for Keycloak auto-registration. If the learner
 has not yet signed in to Gitea, the env record says `gitea_access: pending`; the next status call (tile
 **Refresh**) retries. Every Keycloak user needs an email address — Gitea requires one to create the account.

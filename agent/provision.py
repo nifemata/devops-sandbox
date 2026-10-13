@@ -144,8 +144,9 @@ def provision(job, learner: str, lab: str) -> dict:
     step(job, f"gitea: repo {owner}/{repo} {_ensure_repo(g, owner, repo)}")
     _enable_actions(g, owner, repo); step(job, "gitea: actions enabled")
 
-    gitea_access = "n/a"   # shared labs (owner != learner): learner never gets rights on the demo org
-    if config.GITEA_OIDC_NAME and owner == learner:
+    gitea_access = "n/a"   # shared labs (fixed owner): learner never gets rights on the demo org
+    per_learner_org = "<learner>" in meta.get("owner", "<learner>") and owner != learner
+    if config.GITEA_OIDC_NAME and per_learner_org:
         gitea_access = _ensure_owner(g, owner, learner)
         step(job, f"gitea: learner {learner} org access {gitea_access}"
                   + (" (no Gitea user yet — sign in to Gitea with Keycloak, then Refresh)" if gitea_access == "pending" else ""))
